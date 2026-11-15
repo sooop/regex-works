@@ -4,7 +4,7 @@
   import { tick } from 'svelte';
   import {
     S, V, RX, QUANTIFIABLE, paletteTabs, insertItem, tapBlock, selectPath, clearSel, inSel, selN, selNodes, nodeCode, openSheet,
-    moveSel, growSel, wrapSel, duplicateSel, deleteSel, moveBlocks, nodesForItem, insertNodesAt, applyQuantTo, pathAt, type Path,
+    moveSel, growSel, wrapSel, duplicateSel, deleteSel, moveBlocks, copyBlocks, nodesForItem, insertNodesAt, applyQuantTo, pathAt, type Path,
   } from '../lib/app.svelte';
   import { flip } from 'svelte/animate';
   import { listFx, flipFx } from '../lib/motion/motion.svelte';
@@ -27,12 +27,14 @@
   let dragKind = $state<'' | 'blocks' | 'item'>('');
   let src = $state<{ parent: string; lo: number; hi: number } | null>(null);
   let overTrash = $state(false);
+  /** Ctrl(⌘)을 누른 채 블록을 끌면 옮기지 않고 복제해 놓는다 */
+  let copying = $state(false);
   let qOver = $state('');
   let drag: any = null;
   let suppressUntil = 0;
 
   function isSrc(path: Path) {
-    if (!src) return false;
+    if (!src || copying) return false;
     const i = path[path.length - 1];
     return key(path.slice(0, -1)) === src.parent && i >= src.lo && i < src.hi;
   }
@@ -61,6 +63,7 @@
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', cancel);
     window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', onMod); window.addEventListener('keyup', onMod);
     window.addEventListener('blur', cancel);
     document.addEventListener('visibilitychange', cancel);
   }
@@ -69,6 +72,7 @@
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', cancel);
     window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('keydown', onMod); window.removeEventListener('keyup', onMod);
     window.removeEventListener('blur', cancel);
     document.removeEventListener('visibilitychange', cancel);
   }
@@ -92,7 +96,7 @@
   function onMove(e: PointerEvent) {
     const d = drag; if (!d) return;
     if (!d.started) { if (Math.hypot(e.clientX - d.x0, e.clientY - d.y0) < 5) return; start(e); if (!drag) return; }
-    d.px = e.clientX; d.py = e.clientY;
+    d.px = e.clientX; d.py = e.clientY; d.copy = e.ctrlKey || e.metaKey; copying = d.kind === 'blocks' && d.copy;
     d.ghost.move(e.clientX, e.clientY);
     locate();
   }
@@ -125,7 +129,7 @@
     const ot = d.kind === 'blocks' && !!trash && inside(trash.getBoundingClientRect(), x, y, 4);
     overTrash = ot;
     if (ot) { d.slot = null; hideLine(); d.ghost.setInto(true); d.ghost.setLabel('삭제'); return; }
-    d.ghost.setLabel('');
+    d.ghost.setLabel(d.kind === 'blocks' && d.copy ? '복제' : '');
     const br = board.getBoundingClientRect();
     if (d.kind === 'item' && isQuantItem(d.item)) {
       // 수량은 자리가 아니라 블록 위에 놓는다
@@ -140,7 +144,7 @@
     let cont: HTMLElement = rootList, parent: Path = [];
     // 문서 순서로 훑으면 마지막에 맞은 것이 가장 안쪽 그룹이다
     board.querySelectorAll<HTMLElement>('.gb').forEach((gb) => { if (inside(gb.getBoundingClientRect(), x, y, 2)) { cont = gb; parent = toPath(gb.dataset.gpath!); } });
-    if (d.kind === 'blocks') {
+    if (d.kind === 'blocks' && !d.copy) {
       // 자기 자신 안으로는 옮길 수 없다
       for (let k = 0; k < d.count; k++) {
         const fp = d.from.slice(0, -1).concat(d.from[d.from.length - 1] + k);
@@ -171,13 +175,14 @@
   function clearMarks() {
     cancelAnimationFrame(drag?.raf || 0);
     document.documentElement.classList.remove('mo-dragging');
-    hideLine(); overTrash = false; qOver = ''; dragKind = '';
+    hideLine(); overTrash = false; qOver = ''; dragKind = ''; copying = false;
   }
-  async function onUp() {
+  async function onUp(e: PointerEvent) {
     const d = drag; if (!d) return;
     unlisten();
     if (!d.started) { drag = null; return; } // 끌지 않았다: 클릭으로 처리된다
     suppressUntil = performance.now() + 120;
+    d.copy = d.kind === 'blocks' && (e.ctrlKey || e.metaKey);
     const g = d.ghost, slot = d.slot, toTrash = overTrash, q = qOver;
     const lineRect = line && !line.hidden ? line.getBoundingClientRect() : null;
     clearMarks(); drag = null;
@@ -191,7 +196,7 @@
       if (applyQuantTo(toPath(q), d.item) && el) g.into(el); else g.cancel(d.el);
     } else {
       let ok = !!slot;
-      if (ok && d.kind === 'blocks') ok = moveBlocks(d.from, d.count, slot.parent, slot.idx);
+      if (ok && d.kind === 'blocks') ok = d.copy ? copyBlocks(d.from, d.count, slot.parent, slot.idx) : moveBlocks(d.from, d.count, slot.parent, slot.idx);
       else if (ok) { const nodes = nodesForItem(d.item); ok = !!nodes; if (nodes) insertNodesAt(nodes, slot.parent, slot.idx); }
       if (!ok) { await g.cancel(d.kind === 'blocks' ? d.els[0] : d.el); src = null; fxOff = false; return; }
       src = null;
@@ -217,6 +222,11 @@
     d.ghost.cancel(d.kind === 'blocks' ? d.els[0] : d.el).then(() => { src = null; fxOff = false; });
   }
   function onKey(e: KeyboardEvent) { if (e.key === 'Escape' && drag && drag.started) { e.preventDefault(); e.stopPropagation(); cancel(); } }
+  /** 끄는 도중 Ctrl 을 눌렀다 떼면 바로 복제/이동 표시를 바꾼다 */
+  function onMod(e: KeyboardEvent) {
+    const d = drag; if (!d || !d.started || d.kind !== 'blocks' || (e.key !== 'Control' && e.key !== 'Meta')) return;
+    d.copy = e.ctrlKey || e.metaKey; copying = d.copy; locate();
+  }
   $effect(() => () => { if (drag) cancel(); });
 
   // ---- 블록 조작 ----
@@ -225,6 +235,8 @@
   function blockKey(e: KeyboardEvent, path: Path) {
     const k = e.key;
     if (e.altKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); selectPath(path); moveSel(k === 'ArrowLeft' ? -1 : 1); refocus(); return; }
+    if (e.shiftKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { e.preventDefault(); if (!inSel(path)) selectPath(path); growSel(k === 'ArrowLeft' ? -1 : 1); refocus(); return; }
+    if (k === 'Escape' && S.selPath) { e.preventDefault(); clearSel(); return; }
     if (k === 'ArrowLeft' || k === 'ArrowRight') {
       e.preventDefault();
       const all = Array.from(board!.querySelectorAll<HTMLElement>('button.main[data-pk]'));
@@ -249,6 +261,46 @@
     });
   });
 
+  // ---- 우클릭 메뉴: 선택 막대와 같은 버튼을 포인터 자리에 띄운다 ----
+  let ctx = $state<{ x: number; y: number } | null>(null);
+  let ctxEl = $state<HTMLElement | null>(null);
+  function onContext(e: MouseEvent) {
+    if (drag?.started) { e.preventDefault(); return; }
+    const blk = (e.target as HTMLElement).closest<HTMLElement>('.blk');
+    if (!blk) return;
+    e.preventDefault();
+    const path = toPath(blk.dataset.path!);
+    if (!inSel(path)) selectPath(path);
+    ctx = { x: e.clientX, y: e.clientY };
+  }
+  const closeCtx = () => { ctx = null; };
+  $effect(() => {
+    if (!ctx) return;
+    // 메뉴 크기를 잰 뒤 화면 안으로 밀어 넣는다
+    tick().then(() => {
+      if (!ctx || !ctxEl) return;
+      const r = ctxEl.getBoundingClientRect();
+      ctxEl.style.left = Math.max(8, Math.min(ctx.x, innerWidth - r.width - 8)) + 'px';
+      ctxEl.style.top = Math.max(8, Math.min(ctx.y, innerHeight - r.height - 8)) + 'px';
+      ctxEl.style.visibility = '';
+    });
+    const down = (e: Event) => { if (!ctxEl?.contains(e.target as Node)) closeCtx(); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); closeCtx(); } };
+    const b = board;
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('keydown', esc, true);
+    window.addEventListener('resize', closeCtx);
+    window.addEventListener('blur', closeCtx);
+    b?.addEventListener('scroll', closeCtx);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('keydown', esc, true);
+      window.removeEventListener('resize', closeCtx);
+      window.removeEventListener('blur', closeCtx);
+      b?.removeEventListener('scroll', closeCtx);
+    };
+  });
+
   // ---- 선택 막대 ----
   const has = $derived(!!S.selPath);
   const cnt = $derived(selN());
@@ -256,7 +308,7 @@
   const selLen = $derived.by(() => { try { return S.selPath ? RX.listAt(V.tree, S.selPath).length : 0; } catch (e) { return 0; } });
   const selTitle = $derived.by(() => {
     const nodes = selNodes();
-    if (!nodes.length) return '블록을 눌러 선택하세요 · 끌어서 옮기기 · 두 번 눌러 세부 설정';
+    if (!nodes.length) return '블록을 눌러 선택하세요 · 끌어서 옮기기(Ctrl: 복제) · 두 번 눌러 세부 설정 · 우클릭 메뉴';
     return (cnt > 1 ? cnt + '개 선택: ' + nodes.map(nodeCode).join('').slice(0, 40) : RX.describe(nodes[0])) + (S.multi ? '  (범위: 끝 블록을 누르세요)' : '');
   });
 </script>
@@ -302,12 +354,26 @@
 {/snippet}
 
 {#snippet sb(text: string, label: string, span: number, fn: () => void, disabled: boolean, cls = '', pressed: boolean | undefined = undefined)}
-  <button class="btn sm sb {cls}" type="button" aria-label={label} title={label} style="grid-column: span {span}" {disabled} aria-pressed={pressed} onmousedown={noBlur} onclick={fn}>{text}</button>
+  <button class="btn sm sb {cls}" type="button" aria-label={label} title={label} style="grid-column: span {span}" {disabled} aria-pressed={pressed} onmousedown={noBlur} onclick={() => { closeCtx(); fn(); }}>{text}</button>
+{/snippet}
+
+{#snippet sbGrid()}
+  {@render sb('◀', '앞으로 이동 (Alt+←)', 2, () => moveSel(-1), !has || selIdx === 0)}
+  {@render sb('▶', '뒤로 이동 (Alt+→)', 2, () => moveSel(1), !has || selIdx + cnt >= selLen)}
+  {@render sb('◀+', '왼쪽 블록까지 선택 넓히기 (Shift+←)', 2, () => growSel(-1), !has || selIdx === 0)}
+  {@render sb('+▶', '오른쪽 블록까지 선택 넓히기 (Shift+→)', 2, () => growSel(1), !has || selIdx + cnt >= selLen)}
+  {@render sb('범위', '누른 블록까지 범위 선택', 2, () => (S.multi = !S.multi), !has, S.multi ? 'on' : '', S.multi)}
+  {@render sb('해제', '선택 해제 (Esc)', 2, clearSel, !has)}
+  {@render sb('세부', '세부 설정 (F2)', 2, () => openNode(), !has || cnt !== 1, 'primary')}
+  {@render sb('묶기( )', '캡처 그룹으로 묶기 (Ctrl+G)', 3, () => wrapSel('('), !has)}
+  {@render sb('묶기(?:)', '캡처 없이 묶기 (Ctrl+Shift+G)', 3, () => wrapSel('(?:'), !has)}
+  {@render sb('복제', '복제 (Ctrl+D)', 2, duplicateSel, !has)}
+  {@render sb('삭제', '삭제 (Delete)', 2, deleteSel, !has, 'danger')}
 {/snippet}
 
 <div class="board-wrap">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="board" bind:this={board} role="toolbar" tabindex="-1" aria-label="패턴 블록" onpointerdown={onBoardDown} onpointerleave={() => (S.hover = null)}>
+  <div class="board" bind:this={board} role="toolbar" tabindex="-1" aria-label="패턴 블록" onpointerdown={onBoardDown} oncontextmenu={onContext} onpointerleave={() => (S.hover = null)}>
     <div class="blist" bind:this={rootList}>
       {@render blocks(V.tree.children, [])}
       {#if !V.tree.children.length}
@@ -323,20 +389,15 @@
 
 <div class="selbar" class:empty={!has}>
   <div class="sb-t">{selTitle}</div>
-  <div class="sb-g">
-    {@render sb('◀', '앞으로 이동 (Alt+←)', 2, () => moveSel(-1), !has || selIdx === 0)}
-    {@render sb('▶', '뒤로 이동 (Alt+→)', 2, () => moveSel(1), !has || selIdx + cnt >= selLen)}
-    {@render sb('◀+', '왼쪽 블록까지 선택 넓히기', 2, () => growSel(-1), !has || selIdx === 0)}
-    {@render sb('+▶', '오른쪽 블록까지 선택 넓히기', 2, () => growSel(1), !has || selIdx + cnt >= selLen)}
-    {@render sb('범위', '누른 블록까지 범위 선택', 2, () => (S.multi = !S.multi), !has, S.multi ? 'on' : '', S.multi)}
-    {@render sb('해제', '선택 해제', 2, clearSel, !has)}
-    {@render sb('세부', '세부 설정', 2, () => openNode(), !has || cnt !== 1, 'primary')}
-    {@render sb('묶기( )', '캡처 그룹으로 묶기', 3, () => wrapSel('('), !has)}
-    {@render sb('묶기(?:)', '캡처 없이 묶기', 3, () => wrapSel('(?:'), !has)}
-    {@render sb('복제', '복제', 2, duplicateSel, !has)}
-    {@render sb('삭제', '삭제 (Delete)', 2, deleteSel, !has, 'danger')}
-  </div>
+  <div class="sb-g">{@render sbGrid()}</div>
 </div>
+
+{#if ctx}
+  <div class="selbar ctx" role="menu" tabindex="-1" aria-label="블록 메뉴" bind:this={ctxEl} style="left:{ctx.x}px; top:{ctx.y}px; visibility:hidden" oncontextmenu={(e) => e.preventDefault()}>
+    <div class="sb-t">{selTitle}</div>
+    <div class="sb-g">{@render sbGrid()}</div>
+  </div>
+{/if}
 
 <div class="pal">
   <div class="ptabs" role="tablist" aria-label="팔레트">

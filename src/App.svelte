@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { S, init, setEngine, openSheet, loadPy } from './lib/app.svelte';
+  import { S, init, setEngine, openSheet, loadPy, doUndo, doRedo, duplicateSel, wrapSel } from './lib/app.svelte';
   import { slideFx } from './lib/motion/motion.svelte';
   import PresetCard from './components/PresetCard.svelte';
   import PatternCard from './components/PatternCard.svelte';
@@ -17,6 +17,18 @@
   onMount(() => { init().then(() => { ready = true; }); });
 
   function onKey(e: KeyboardEvent) {
+    // 입력칸 안에서는 그 칸의 기본 동작(글자 단위 되돌리기 등)을 따른다
+    const el = e.target as HTMLElement | null;
+    const typing = !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+    const mod = (e.ctrlKey || e.metaKey) && !e.altKey, k = e.key.toLowerCase();
+    if (mod && !typing && !e.defaultPrevented) {
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); return; }
+      if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); return; }
+      if (S.selPath && !S.sheet) {
+        if (k === 'd' && !e.shiftKey) { e.preventDefault(); duplicateSel(); return; }
+        if (k === 'g') { e.preventDefault(); wrapSel(e.shiftKey ? '(?:' : '('); return; }
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       if (!(S.sheet && S.sheet.kind === 'pal')) openSheet('pal');

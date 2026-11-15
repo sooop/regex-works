@@ -303,6 +303,21 @@ export function moveBlocks(from: Path, count: number, toParent: Path, idx: numbe
   selectAtStart(start);
   return true;
 }
+/** Ctrl 끌어 놓기: from 에서 시작하는 count 개를 복제해 (toParent, idx) 자리에 넣는다. 원본은 그대로 둔다 */
+export function copyBlocks(from: Path, count: number, toParent: Path, idx: number): boolean {
+  const t = freshTree();
+  const fi = from[from.length - 1];
+  const items = RX.listAt(t, from).slice(fi, fi + count);
+  if (!items.length) return false;
+  const copy = items.map((n: any) => RX.clone(n));
+  childrenOf(t, toParent).splice(idx, 0, ...copy);
+  const s = RX.serialize(t);
+  const start = copy[0].start;
+  applyPattern(s, { sel: null });
+  const p = selectAtStart(start);
+  if (p) { const len = RX.listAt(V.tree, p).length; S.selCount = Math.max(1, Math.min(copy.length, len - p[p.length - 1])); }
+  return true;
+}
 /** 팔레트 항목을 노드로 만든다(끌어 놓기용). 수량 항목은 null */
 export function nodesForItem(it: any): any[] | null {
   const k = it.kind || 'text';
