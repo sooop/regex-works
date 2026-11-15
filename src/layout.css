@@ -95,12 +95,12 @@ body { margin: 0; padding-block: 14px 40px; }
 }
 .blist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 44px; }
 .blist .empty { color: var(--muted); font-size: 13px; }
-/* 블록: --bc 종류 색(왼쪽 띠), --bb 바탕 */
+/* 블록: --bc 종류 색(테두리), --bb 바탕 */
 .blk {
   --bc: var(--muted); --bb: var(--pill-lit);
   display: inline-flex; align-items: stretch; position: relative; max-width: 100%; border-radius: 9px; font-family: var(--mono); cursor: grab;
-  background-color: var(--bb); border: 1px solid color-mix(in srgb, var(--bc) 40%, var(--line));
-  box-shadow: inset 3px 0 0 var(--bc), 0 1px 1px rgba(31, 30, 29, .07);
+  background-color: var(--bb); border: 1px solid color-mix(in srgb, var(--bc) 55%, var(--line));
+  box-shadow: 0 1px 1px rgba(31, 30, 29, .07);
   transition: border-color var(--dur-1) var(--ease-out), outline-color var(--dur-1) var(--ease-out);
 }
 .blk.t-esc, .blk.t-cls, .blk.t-dot, .blk.t-ref { --bc: var(--g2); --bb: var(--pill-cls); }
@@ -109,7 +109,7 @@ body { margin: 0; padding-block: 14px 40px; }
 .blk.t-raw { --bc: var(--bad); }
 .blk.grp { --bc: var(--g1); --bb: var(--pill-grp); flex-wrap: wrap; align-items: center; }
 .blk:hover { border-color: var(--bc); }
-.blk .main { border: 0; background: transparent; padding: 3px 9px 3px 12px; min-height: 40px; min-width: 0; display: flex; flex-direction: column; justify-content: center; text-align: left; border-radius: 8px; cursor: inherit; }
+.blk .main { border: 0; background: transparent; padding: 3px 9px; min-height: 40px; min-width: 0; display: flex; flex-direction: column; justify-content: center; text-align: left; border-radius: 8px; cursor: inherit; }
 .blk .code { font-size: 15px; font-weight: 500; white-space: pre-wrap; overflow-wrap: anywhere; }
 .blk .lab { font-family: var(--font); font-size: 10.5px; color: var(--muted); line-height: 1.2; white-space: nowrap; }
 .blk .qbtn { border: 0; background: var(--pill-q); color: var(--accent-ink); padding: 0 9px; min-width: 32px; border-radius: 0 8px 8px 0; font-family: var(--mono); font-weight: 700; cursor: pointer; }
