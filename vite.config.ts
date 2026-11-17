@@ -27,8 +27,8 @@ function inlineSingleFile(): Plugin {
         const js = take(href);
         return js == null ? m : `<script type="module">${js.replace(/<\/script/gi, '<\/script')}</script>`;
       });
-      const svg = readFileSync('public/favicon.svg');
-      src = src.replace(/(<link rel="icon"[^>]*href=")[^"]+(")/, `$1data:image/svg+xml;base64,${svg.toString('base64')}$2`);
+      // iOS Safari 는 SVG favicon 을 못 읽으므로 PNG favicon·apple-touch-icon 을 data URI 로 넣는다
+      src = src.replace(/(<link rel="(?:icon|apple-touch-icon)"[^>]*href=")\.\/([^"]+\.png)(")/g, (_m, a: string, p: string, c: string) => `${a}data:image/png;base64,${readFileSync(`public/${p}`).toString('base64')}${c}`);
       html.source = src;
     },
   };
